@@ -1,0 +1,21 @@
+order_id,customer_id,product_id,order_date,quantity,amount,product_name,category,year,month,day_of_week,total_revenue,customer_purchase_frequency
+1001,C001,P101,2024-01-01,2,159.98,Premium Wireless Headphones,Electronics,2024,1,Monday,319.96,3
+1002,C002,P102,2024-01-01,1,899.99,4K Smart TV,Electronics,2024,1,Monday,899.99,2
+1003,C001,P103,2024-01-02,3,89.97,Yoga Mat,Sports & Fitness,2024,1,Tuesday,269.90999999999997,3
+1004,C003,P104,2024-01-02,1,1299.99,Gaming Laptop,Electronics,2024,1,Tuesday,1299.99,1
+1005,C004,P105,2024-01-02,2,39.98,Cotton T-Shirt,Apparel,2024,1,Tuesday,79.96,1
+1006,C002,P106,2024-01-03,1,129.99,Running Shoes,Sports & Fitness,2024,1,Wednesday,129.99,2
+1007,C005,P107,2024-01-03,4,79.96,Protein Powder,Health & Nutrition,2024,1,Wednesday,319.84,1
+1008,C006,P101,2024-01-04,1,79.99,Premium Wireless Headphones,Electronics,2024,1,Thursday,79.99,1
+1009,C007,P108,2024-01-04,2,159.98,Designer Jeans,Apparel,2024,1,Thursday,319.96,1
+1010,C008,P109,2024-01-05,1,549.99,Smartphone,Electronics,2024,1,Friday,549.99,1
+1011,C009,P110,2024-01-05,3,89.97,Resistance Bands Set,Sports & Fitness,2024,1,Friday,269.90999999999997,1
+1012,C010,P111,2024-01-06,1,299.99,Coffee Maker,Home & Kitchen,2024,1,Saturday,299.99,1
+1013,C001,P112,2024-01-06,2,59.98,Scented Candles,Home & Kitchen,2024,1,Saturday,119.96,3
+1014,C011,P113,2024-01-07,1,199.99,Fitness Tracker,Electronics,2024,1,Sunday,199.99,1
+1015,C012,P114,2024-01-07,4,119.96,Vitamin Pack,Health & Nutrition,2024,1,Sunday,479.84,1
+1016,C013,P115,2024-01-08,1,899.99,iPad,Electronics,2024,1,Monday,899.99,1
+1017,C014,P116,2024-01-08,2,159.98,Dress Shoes,Apparel,2024,1,Monday,319.96,1
+1018,C015,P117,2024-01-09,1,79.99,Blender,Home & Kitchen,2024,1,Tuesday,79.99,1
+1019,C016,P118,2024-01-09,3,149.97,Yoga Pants,Sports & Fitness,2024,1,Tuesday,449.90999999999997,1
+1020,C017,P119,2024-01-10,1,399.99,Gaming Console,Electronics,2024,1,Wednesday,399.99,1
