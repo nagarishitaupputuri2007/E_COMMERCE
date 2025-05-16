@@ -12,6 +12,9 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Set style for visualizations
 plt.style.use('seaborn')
@@ -132,254 +135,244 @@ def train_lstm(X_train, y_train):
     
     return model
 
-def evaluate_models(models, data, test_periods=30):
+def train_sarima_model(data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12)):
     """
-    Evaluate different forecasting models
+    Train a SARIMA model on the provided time series data
     """
-    print("Evaluating model performance...")
+    print("Training SARIMA model...")
     
-    results = {}
-    train_data, test_data = data['original']
+    model = SARIMAX(data['amount'],
+                    order=order,
+                    seasonal_order=seasonal_order,
+                    enforce_stationarity=False,
+                    enforce_invertibility=False)
     
-    # Evaluate Holt-Winters
-    hw_forecast = models['holt_winters'].forecast(test_periods)
-    hw_rmse = np.sqrt(mean_squared_error(test_data['amount'][:test_periods], hw_forecast))
-    hw_mape = mean_absolute_percentage_error(test_data['amount'][:test_periods], hw_forecast)
-    results['Holt-Winters'] = {'rmse': hw_rmse, 'mape': hw_mape}
-    
-    # Evaluate ARIMA
-    arima_forecast = models['arima'].forecast(test_periods)
-    arima_rmse = np.sqrt(mean_squared_error(test_data['amount'][:test_periods], arima_forecast))
-    arima_mape = mean_absolute_percentage_error(test_data['amount'][:test_periods], arima_forecast)
-    results['ARIMA'] = {'rmse': arima_rmse, 'mape': arima_mape}
-    
-    # Evaluate Prophet
-    future_dates = models['prophet'].make_future_dataframe(periods=test_periods)
-    prophet_forecast = models['prophet'].predict(future_dates)
-    prophet_rmse = np.sqrt(mean_squared_error(
-        test_data['amount'][:test_periods],
-        prophet_forecast.tail(test_periods)['yhat']
-    ))
-    prophet_mape = mean_absolute_percentage_error(
-        test_data['amount'][:test_periods],
-        prophet_forecast.tail(test_periods)['yhat']
-    )
-    results['Prophet'] = {'rmse': prophet_rmse, 'mape': prophet_mape}
-    
-    # Evaluate LSTM
-    X_train, y_train, X_test, y_test, scaler = data['lstm']
-    lstm_pred = models['lstm'].predict(X_test[:test_periods])
-    lstm_pred = scaler.inverse_transform(lstm_pred)
-    lstm_actual = scaler.inverse_transform(y_test[:test_periods].reshape(-1, 1))
-    lstm_rmse = np.sqrt(mean_squared_error(lstm_actual, lstm_pred))
-    lstm_mape = mean_absolute_percentage_error(lstm_actual, lstm_pred)
-    results['LSTM'] = {'rmse': lstm_rmse, 'mape': lstm_mape}
-    
+    results = model.fit()
     return results
 
-def generate_forecasts(models, data, forecast_periods=180):
+def generate_future_dates(last_date, periods):
     """
-    Generate forecasts for future periods
+    Generate future dates for forecasting
     """
-    print("Generating forecasts...")
+    date_list = []
+    current_date = last_date
     
-    forecasts = {}
+    for _ in range(periods):
+        current_date += timedelta(days=1)
+        date_list.append(current_date)
     
-    # Generate Holt-Winters forecast
-    hw_forecast = models['holt_winters'].forecast(forecast_periods)
-    forecasts['Holt-Winters'] = hw_forecast
-    
-    # Generate ARIMA forecast
-    arima_forecast = models['arima'].forecast(forecast_periods)
-    forecasts['ARIMA'] = arima_forecast
-    
-    # Generate Prophet forecast
-    future_dates = models['prophet'].make_future_dataframe(periods=forecast_periods)
-    prophet_forecast = models['prophet'].predict(future_dates)
-    forecasts['Prophet'] = prophet_forecast.tail(forecast_periods)['yhat']
-    
-    # Generate LSTM forecast
-    X_train, y_train, X_test, y_test, scaler = data['lstm']
-    lstm_forecast = []
-    last_sequence = X_test[-1]
-    
-    for _ in range(forecast_periods):
-        next_pred = models['lstm'].predict(last_sequence.reshape(1, 7, 1))
-        lstm_forecast.append(next_pred[0, 0])
-        last_sequence = np.roll(last_sequence, -1)
-        last_sequence[-1] = next_pred
-    
-    lstm_forecast = scaler.inverse_transform(np.array(lstm_forecast).reshape(-1, 1))
-    forecasts['LSTM'] = pd.Series(lstm_forecast.flatten())
-    
-    return forecasts
+    return pd.DatetimeIndex(date_list)
 
-def create_forecast_visualizations(daily_sales, forecasts, evaluation_results):
+def make_future_predictions(model, last_date, periods=180):
     """
-    Create visualizations for forecasting results
+    Generate sales predictions for future dates
+    """
+    print(f"Generating predictions for next {periods} days...")
+    
+    # Generate forecast
+    forecast = model.get_forecast(steps=periods)
+    
+    # Get confidence intervals
+    forecast_mean = forecast.predicted_mean
+    conf_int = forecast.conf_int()
+    
+    # Create future dates
+    future_dates = generate_future_dates(last_date, periods)
+    
+    # Create forecast DataFrame
+    forecast_df = pd.DataFrame({
+        'date': future_dates,
+        'predicted_sales': forecast_mean,
+        'lower_ci': conf_int.iloc[:, 0],
+        'upper_ci': conf_int.iloc[:, 1]
+    })
+    
+    forecast_df.set_index('date', inplace=True)
+    return forecast_df
+
+def evaluate_forecast(actual, predicted):
+    """
+    Calculate forecast accuracy metrics
+    """
+    rmse = np.sqrt(mean_squared_error(actual, predicted))
+    mape = mean_absolute_percentage_error(actual, predicted) * 100
+    
+    return {
+        'RMSE': rmse,
+        'MAPE': mape
+    }
+
+def visualize_forecast(historical_data, forecast_data):
+    """
+    Create visualizations for historical and forecasted sales
     """
     print("Creating forecast visualizations...")
     
-    # Plot historical data with forecasts
-    plt.figure(figsize=(15, 8))
-    plt.plot(daily_sales.index, daily_sales['amount'], label='Historical Data', alpha=0.7)
+    # Create interactive plot using plotly
+    fig = make_subplots(rows=2, cols=1,
+                        subplot_titles=('Sales Forecast with Confidence Intervals',
+                                      'Historical vs Forecasted Sales Pattern'))
     
-    future_dates = pd.date_range(
-        start=daily_sales.index[-1] + timedelta(days=1),
-        periods=len(next(iter(forecasts.values()))),
-        freq='D'
+    # Plot 1: Historical + Forecast with CI
+    fig.add_trace(
+        go.Scatter(x=historical_data.index, y=historical_data['amount'],
+                  name='Historical Sales',
+                  line=dict(color='blue')),
+        row=1, col=1
     )
     
-    for model_name, forecast in forecasts.items():
-        plt.plot(future_dates, forecast, label=f'{model_name} Forecast', alpha=0.7)
+    fig.add_trace(
+        go.Scatter(x=forecast_data.index, y=forecast_data['predicted_sales'],
+                  name='Forecasted Sales',
+                  line=dict(color='red', dash='dash')),
+        row=1, col=1
+    )
     
-    plt.title('Sales Forecasts Comparison')
-    plt.xlabel('Date')
-    plt.ylabel('Sales Amount')
-    plt.legend()
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig('sales_forecasts_comparison.png')
-    plt.close()
+    fig.add_trace(
+        go.Scatter(x=forecast_data.index, y=forecast_data['upper_ci'],
+                  fill=None,
+                  line=dict(color='rgba(255,0,0,0.2)'),
+                  name='Upper CI'),
+        row=1, col=1
+    )
     
-    # Create evaluation metrics comparison
-    plt.figure(figsize=(10, 6))
-    models = list(evaluation_results.keys())
-    rmse_values = [results['rmse'] for results in evaluation_results.values()]
-    mape_values = [results['mape'] * 100 for results in evaluation_results.values()]
+    fig.add_trace(
+        go.Scatter(x=forecast_data.index, y=forecast_data['lower_ci'],
+                  fill='tonexty',
+                  line=dict(color='rgba(255,0,0,0.2)'),
+                  name='Lower CI'),
+        row=1, col=1
+    )
     
-    x = np.arange(len(models))
-    width = 0.35
+    # Plot 2: Sales Pattern Comparison
+    historical_pattern = historical_data.groupby(historical_data.index.dayofweek)['amount'].mean()
+    forecast_pattern = forecast_data.groupby(forecast_data.index.dayofweek)['predicted_sales'].mean()
     
-    plt.bar(x - width/2, rmse_values, width, label='RMSE')
-    plt.bar(x + width/2, mape_values, width, label='MAPE (%)')
+    fig.add_trace(
+        go.Scatter(x=list(range(7)), y=historical_pattern,
+                  name='Historical Pattern',
+                  line=dict(color='blue')),
+        row=2, col=1
+    )
     
-    plt.xlabel('Models')
-    plt.ylabel('Error Metrics')
-    plt.title('Model Performance Comparison')
-    plt.xticks(x, models, rotation=45)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig('forecast_model_comparison.png')
-    plt.close()
+    fig.add_trace(
+        go.Scatter(x=list(range(7)), y=forecast_pattern,
+                  name='Forecasted Pattern',
+                  line=dict(color='red', dash='dash')),
+        row=2, col=1
+    )
+    
+    fig.update_layout(height=800, title_text="Sales Forecast Analysis")
+    fig.write_html('sales_forecast_analysis.html')
 
-def generate_forecast_report(evaluation_results, best_model):
+def generate_forecast_report(historical_data, forecast_data, metrics):
     """
-    Generate a report summarizing the forecasting results
+    Generate a detailed forecast report with insights and recommendations
     """
-    print("Generating forecasting report...")
+    print("Generating forecast report...")
     
-    report_content = """# Sales Forecasting Analysis Report
+    # Calculate key metrics
+    avg_historical = historical_data['amount'].mean()
+    avg_forecast = forecast_data['predicted_sales'].mean()
+    growth_rate = ((avg_forecast - avg_historical) / avg_historical) * 100
+    
+    peak_forecast_date = forecast_data['predicted_sales'].idxmax()
+    peak_forecast_value = forecast_data['predicted_sales'].max()
+    
+    report_content = """# Sales Forecast Analysis Report
 
-## Model Evaluation Results
+## Forecast Overview
+- Forecast Period: {} to {}
+- Number of Days Forecasted: {}
+- Average Historical Daily Sales: ₹{:,.2f}
+- Average Forecasted Daily Sales: ₹{:,.2f}
+- Expected Growth Rate: {:.1f}%
 
-### Performance Metrics
+## Forecast Accuracy Metrics
+- Root Mean Square Error (RMSE): ₹{:,.2f}
+- Mean Absolute Percentage Error (MAPE): {:.1f}%
+
+## Key Insights
+1. Peak Sales Forecast:
+   - Date: {}
+   - Expected Sales: ₹{:,.2f}
+
+2. Growth Trends:
 {}
 
-### Best Performing Model
-The {} model showed the best performance with:
-- RMSE: {:.2f}
-- MAPE: {:.2f}%
+3. Seasonal Patterns:
+{}
 
-## Model Comparisons
-1. Holt-Winters Exponential Smoothing
-   - Strengths: Handles both trend and seasonality
-   - Best for: Short to medium-term forecasting
-   - Performance: RMSE = {:.2f}, MAPE = {:.2f}%
+## Business Recommendations
 
-2. ARIMA
-   - Strengths: Captures complex time series patterns
-   - Best for: Stationary time series data
-   - Performance: RMSE = {:.2f}, MAPE = {:.2f}%
+1. Inventory Management:
+{}
 
-3. Facebook Prophet
-   - Strengths: Handles holidays and special events
-   - Best for: Business forecasting with multiple seasonalities
-   - Performance: RMSE = {:.2f}, MAPE = {:.2f}%
+2. Marketing and Promotions:
+{}
 
-4. LSTM Neural Network
-   - Strengths: Captures complex non-linear patterns
-   - Best for: Large datasets with long-term dependencies
-   - Performance: RMSE = {:.2f}, MAPE = {:.2f}%
-
-## Recommendations
-1. Primary Model Selection:
-   - Use {} for production forecasting
-   - Regular retraining schedule: Monthly
-   - Monitor accuracy metrics for potential drift
-
-2. Backup Models:
-   - Keep {} as a backup model
-   - Use ensemble approach for critical periods
-
-3. Model Usage Guidelines:
-   - Short-term forecasts (1-7 days): High confidence
-   - Medium-term forecasts (8-30 days): Moderate confidence
-   - Long-term forecasts (31+ days): Use with caution
-
-## Visualizations
-1. sales_forecasts_comparison.png - Comparison of different model forecasts
-2. forecast_model_comparison.png - Performance metrics comparison
+3. Resource Planning:
+{}
 
 ## Next Steps
-1. Implement the {} model in production
-2. Set up automated retraining pipeline
-3. Create monitoring dashboard for forecast accuracy
-4. Develop ensemble approach for peak seasons
+1. Monitor actual sales against predictions and adjust forecasts as needed
+2. Update the model with new data periodically
+3. Fine-tune forecasting parameters based on accuracy metrics
+4. Develop contingency plans for significant deviations from forecast
+
+Note: This forecast should be used as a guide and combined with business expertise and market knowledge for decision-making.
 """.format(
-    pd.DataFrame(evaluation_results).to_string(),
-    best_model,
-    evaluation_results[best_model]['rmse'],
-    evaluation_results[best_model]['mape'] * 100,
-    evaluation_results['Holt-Winters']['rmse'],
-    evaluation_results['Holt-Winters']['mape'] * 100,
-    evaluation_results['ARIMA']['rmse'],
-    evaluation_results['ARIMA']['mape'] * 100,
-    evaluation_results['Prophet']['rmse'],
-    evaluation_results['Prophet']['mape'] * 100,
-    evaluation_results['LSTM']['rmse'],
-    evaluation_results['LSTM']['mape'] * 100,
-    best_model,
-    sorted(evaluation_results.items(), key=lambda x: x[1]['rmse'])[1][0],
-    best_model
+    forecast_data.index.min().strftime('%Y-%m-%d'),
+    forecast_data.index.max().strftime('%Y-%m-%d'),
+    len(forecast_data),
+    avg_historical,
+    avg_forecast,
+    growth_rate,
+    metrics['RMSE'],
+    metrics['MAPE'],
+    peak_forecast_date.strftime('%Y-%m-%d'),
+    peak_forecast_value,
+    "- Positive growth trend observed" if growth_rate > 0 else "- Declining trend observed",
+    "- Weekly patterns show strongest sales on " + str(forecast_data.groupby(forecast_data.index.dayofweek)['predicted_sales'].mean().idxmax()),
+    "- Maintain higher stock levels during peak sales periods\n- Optimize inventory for predicted demand patterns",
+    "- Plan promotional activities around forecasted slow periods\n- Capitalize on expected peak sales periods",
+    "- Adjust staffing levels based on predicted sales volumes\n- Plan system maintenance during forecasted low-traffic periods"
 )
     
-    with open('sales_forecasting_report.md', 'w') as f:
+    with open('sales_forecast_report.md', 'w') as f:
         f.write(report_content)
 
 def main():
     """
-    Main function to run the sales forecasting analysis
+    Main function to run sales forecasting analysis
     """
     try:
-        # Load processed data
-        daily_sales = load_processed_data()
+        # Load historical data
+        historical_data = pd.read_csv('daily_sales_processed.csv', index_col='order_date', parse_dates=True)
         
-        # Prepare data for different models
-        data = prepare_data_for_models(daily_sales)
+        # Train SARIMA model
+        model = train_sarima_model(historical_data)
         
-        # Train models
-        models = {
-            'holt_winters': train_holt_winters(data['original'][0]),
-            'arima': train_arima(data['original'][0]),
-            'prophet': train_prophet(data['prophet'][0]),
-            'lstm': train_lstm(data['lstm'][0], data['lstm'][1])
-        }
+        # Generate future predictions
+        forecast_data = make_future_predictions(model, historical_data.index[-1])
         
-        # Evaluate models
-        evaluation_results = evaluate_models(models, data)
+        # Calculate forecast accuracy using last 30 days of historical data
+        test_period = 30
+        train_data = historical_data[:-test_period]
+        test_data = historical_data[-test_period:]
         
-        # Generate forecasts
-        forecasts = generate_forecasts(models, data)
+        # Train model on training data
+        test_model = train_sarima_model(train_data)
+        test_predictions = test_model.get_forecast(steps=test_period).predicted_mean
+        
+        # Calculate accuracy metrics
+        metrics = evaluate_forecast(test_data['amount'], test_predictions)
         
         # Create visualizations
-        create_forecast_visualizations(daily_sales, forecasts, evaluation_results)
+        visualize_forecast(historical_data, forecast_data)
         
-        # Determine best model
-        best_model = min(evaluation_results.items(), key=lambda x: x[1]['rmse'])[0]
-        
-        # Generate report
-        generate_forecast_report(evaluation_results, best_model)
+        # Generate forecast report
+        generate_forecast_report(historical_data, forecast_data, metrics)
         
         print("Sales forecasting analysis completed successfully!")
         

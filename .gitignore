@@ -1,6 +1,29 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+.env
+.venv/
+
+# Generated data files
+*.csv
+*.zip
+
+# Generated visualizations
+*.png
+*.html
+
+# Reports
+*_report.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
 *.so
 .Python
 env/

@@ -9,8 +9,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Set style for visualizations
-plt.style.use('seaborn')
-sns.set_palette("husl")
+plt.style.use('default')
+sns.set_theme()
 
 def load_and_prepare_data(file_path):
     """
@@ -62,10 +62,8 @@ def handle_missing_data(daily_sales):
                              end=daily_sales.index.max(),
                              freq='D')
     
-    # Reindex the daily sales with the complete date range
+    # Reindex and fill missing values
     complete_daily_sales = daily_sales.reindex(date_range)
-    
-    # Fill missing values with 0 or interpolate
     complete_daily_sales.fillna(0, inplace=True)
     
     return complete_daily_sales
@@ -76,9 +74,12 @@ def analyze_trends_seasonality(daily_sales):
     """
     print("Analyzing trends and seasonality...")
     
+    # For small datasets, use a smaller period
+    period = min(7, len(daily_sales) // 2)
+    
     # Perform seasonal decomposition
     decomposition = seasonal_decompose(daily_sales['amount'], 
-                                     period=7,  # Weekly seasonality
+                                     period=period,  # Adjusted period
                                      model='additive')
     
     # Create visualization of decomposition
@@ -171,10 +172,10 @@ This report presents the analysis of e-commerce sales data using time series tec
 ## Data Summary
 - Analysis Period: {} to {}
 - Total Days Analyzed: {}
-- Total Sales: ₹{:,.2f}
-- Average Daily Sales: ₹{:,.2f}
-- Maximum Daily Sales: ₹{:,.2f}
-- Minimum Daily Sales: ₹{:,.2f}
+- Total Sales: Rs.{:,.2f}
+- Average Daily Sales: Rs.{:,.2f}
+- Maximum Daily Sales: Rs.{:,.2f}
+- Minimum Daily Sales: Rs.{:,.2f}
 
 ## Trend Analysis
 The trend component of the time series shows the long-term progression of sales over time. Key observations:
@@ -228,7 +229,7 @@ The following visualizations have been generated for detailed analysis:
     daily_sales.groupby(daily_sales.index.month)['amount'].mean().idxmax()
 )
     
-    with open('time_series_analysis_report.md', 'w') as f:
+    with open('time_series_analysis_report.md', 'w', encoding='utf-8') as f:
         f.write(report_content)
 
 def main():
