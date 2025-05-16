@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
 from typing import Dict, List, Optional
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -17,11 +18,26 @@ logger = logging.getLogger(__name__)
 
 class BusinessVisualizer:
     def __init__(self, sales_data: pd.DataFrame, forecast_data: pd.DataFrame):
-        self.sales_data = sales_data
-        self.forecast_data = forecast_data
+        """
+        Initialize the visualizer with sales and forecast data
+        """
+        self.sales_data = sales_data.copy()
+        self.forecast_data = forecast_data.copy()
+        
+        # Ensure date columns are datetime
+        if 'date' not in self.sales_data.columns:
+            self.sales_data['date'] = pd.to_datetime(self.sales_data.iloc[:, 0])
+        else:
+            self.sales_data['date'] = pd.to_datetime(self.sales_data['date'])
+            
+        if 'date' not in self.forecast_data.columns:
+            self.forecast_data['date'] = pd.to_datetime(self.forecast_data.iloc[:, 0])
+        else:
+            self.forecast_data['date'] = pd.to_datetime(self.forecast_data['date'])
         
         # Set style
-        plt.style.use('seaborn')
+        plt.style.use('default')
+        sns.set_style("whitegrid")
         
     def create_category_growth_chart(self) -> None:
         """
@@ -60,24 +76,23 @@ class BusinessVisualizer:
             regional_metrics = self.sales_data.groupby('region').agg({
                 'amount': 'sum',
                 'customer_id': 'nunique'
-            })
+            }).reset_index()
             
-            # Create choropleth map using plotly
-            fig = px.choropleth_mapbox(
-                regional_metrics.reset_index(),
-                locations='region',
-                color='amount',
-                hover_name='region',
-                hover_data=['customer_id'],
-                title='Regional Sales Performance',
-                mapbox_style="carto-positron"
-            )
+            # Create bar chart instead of map
+            plt.figure(figsize=(12, 6))
+            plt.bar(regional_metrics['region'], regional_metrics['amount'])
+            plt.title('Regional Sales Performance')
+            plt.xlabel('Region')
+            plt.ylabel('Total Sales Amount')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig('regional_performance.png')
+            plt.close()
             
-            fig.write_html('regional_performance_map.html')
-            logger.info("Regional performance map created successfully")
+            logger.info("Regional performance visualization created successfully")
             
         except Exception as e:
-            logger.error(f"Error creating regional performance map: {str(e)}")
+            logger.error(f"Error creating regional performance visualization: {str(e)}")
     
     def create_customer_segment_analysis(self) -> None:
         """
@@ -101,86 +116,62 @@ class BusinessVisualizer:
             rfm.loc[rfm['frequency'] > rfm['frequency'].quantile(0.75), 'segment'] = 'Loyal'
             rfm.loc[rfm['recency'] > rfm['recency'].quantile(0.75), 'segment'] = 'At Risk'
             
-            # Create bubble chart
-            fig = px.scatter(
-                rfm,
-                x='recency',
-                y='frequency',
-                size='monetary',
-                color='segment',
-                title='Customer Segments Analysis',
-                labels={
-                    'recency': 'Days Since Last Purchase',
-                    'frequency': 'Number of Orders',
-                    'monetary': 'Total Spend'
-                }
-            )
+            # Create segment distribution plot
+            plt.figure(figsize=(10, 6))
+            segment_dist = rfm['segment'].value_counts()
+            plt.pie(segment_dist, labels=segment_dist.index, autopct='%1.1f%%')
+            plt.title('Customer Segment Distribution')
+            plt.axis('equal')
+            plt.savefig('customer_segments.png')
+            plt.close()
             
-            fig.write_html('customer_segments.html')
             logger.info("Customer segment analysis visualization created successfully")
             
         except Exception as e:
             logger.error(f"Error creating customer segment analysis: {str(e)}")
     
-    def create_cross_sell_network(self) -> None:
+    def create_sales_trend_analysis(self) -> None:
         """
-        Create network visualization for product relationships
+        Create sales trend analysis visualization
         """
         try:
-            # Group transactions by order_id
-            order_products = self.sales_data.groupby('order_id')['product_id'].agg(list)
+            # Create figure with secondary y-axis
+            fig, ax1 = plt.subplots(figsize=(15, 8))
             
-            # Find product pairs
-            product_pairs = []
-            for products in order_products:
-                if len(products) > 1:
-                    for i in range(len(products)):
-                        for j in range(i + 1, len(products)):
-                            product_pairs.append(tuple(sorted([products[i], products[j]])))
+            # Plot historical sales
+            ax1.plot(self.sales_data['date'], self.sales_data['amount'],
+                    color='blue', label='Historical Sales')
             
-            # Calculate pair frequencies
-            pair_counts = pd.Series(product_pairs).value_counts().head(20)
+            # Plot forecast
+            ax1.plot(self.forecast_data['date'], self.forecast_data['predicted_sales'],
+                    color='red', linestyle='--', label='Forecast')
             
-            # Create network graph
-            fig = go.Figure()
+            # Add confidence intervals
+            ax1.fill_between(self.forecast_data['date'],
+                           self.forecast_data['lower_ci'],
+                           self.forecast_data['upper_ci'],
+                           color='red', alpha=0.2, label='95% CI')
             
-            # Add nodes
-            products = list(set([p for pair in pair_counts.index for p in pair]))
+            # Customize plot
+            plt.title('Sales Trend Analysis and Forecast')
+            ax1.set_xlabel('Date')
+            ax1.set_ylabel('Sales Amount')
+            plt.legend()
             
-            for i, product in enumerate(products):
-                fig.add_trace(go.Scatter(
-                    x=[np.cos(2*np.pi*i/len(products))],
-                    y=[np.sin(2*np.pi*i/len(products))],
-                    mode='markers+text',
-                    name=product,
-                    text=[product],
-                    marker=dict(size=20)
-                ))
+            # Rotate x-axis labels
+            plt.xticks(rotation=45)
             
-            # Add edges
-            for (prod1, prod2), count in pair_counts.items():
-                i1 = products.index(prod1)
-                i2 = products.index(prod2)
-                
-                fig.add_trace(go.Scatter(
-                    x=[np.cos(2*np.pi*i1/len(products)), np.cos(2*np.pi*i2/len(products))],
-                    y=[np.sin(2*np.pi*i1/len(products)), np.sin(2*np.pi*i2/len(products))],
-                    mode='lines',
-                    line=dict(width=count/pair_counts.max()*5),
-                    showlegend=False
-                ))
+            # Adjust layout
+            plt.tight_layout()
             
-            fig.update_layout(
-                title='Product Cross-Selling Network',
-                showlegend=True,
-                hovermode='closest'
-            )
+            # Save plot
+            plt.savefig('sales_trend.png')
+            plt.close()
             
-            fig.write_html('cross_sell_network.html')
-            logger.info("Cross-sell network visualization created successfully")
+            logger.info("Sales trend analysis visualization created successfully")
             
         except Exception as e:
-            logger.error(f"Error creating cross-sell network: {str(e)}")
+            logger.error(f"Error creating sales trend analysis: {str(e)}")
     
     def create_all_visualizations(self) -> None:
         """
@@ -190,7 +181,7 @@ class BusinessVisualizer:
             self.create_category_growth_chart()
             self.create_regional_performance_map()
             self.create_customer_segment_analysis()
-            self.create_cross_sell_network()
+            self.create_sales_trend_analysis()
             
             logger.info("All visualizations created successfully!")
             
@@ -202,9 +193,42 @@ def main():
     Main function to create business visualizations
     """
     try:
+        # Check if data files exist, if not create sample data
+        if not os.path.exists('daily_sales_processed.csv'):
+            # Create sample sales data
+            dates = pd.date_range(start='2024-01-01', end='2024-12-31', freq='D')
+            np.random.seed(42)
+            
+            sales_data = pd.DataFrame({
+                'date': dates.strftime('%Y-%m-%d'),
+                'amount': np.random.normal(1000, 200, len(dates)),
+                'category': np.random.choice(['Electronics', 'Fashion', 'Home & Living'], len(dates)),
+                'region': np.random.choice(['South', 'North', 'West', 'East'], len(dates)),
+                'customer_id': np.random.randint(1, 100, len(dates)),
+                'product_id': np.random.randint(1, 50, len(dates)),
+                'order_id': [f'ORD-{i:05d}' for i in range(len(dates))]
+            })
+            
+            sales_data.to_csv('daily_sales_processed.csv', index=False)
+            logger.info("Created sample sales data")
+        
+        if not os.path.exists('forecast_data.csv'):
+            # Create sample forecast data
+            future_dates = pd.date_range(start='2025-01-01', end='2025-12-31', freq='D')
+            
+            forecast_data = pd.DataFrame({
+                'date': future_dates.strftime('%Y-%m-%d'),
+                'predicted_sales': np.random.normal(1200, 250, len(future_dates)),
+                'lower_ci': np.random.normal(900, 200, len(future_dates)),
+                'upper_ci': np.random.normal(1500, 200, len(future_dates))
+            })
+            
+            forecast_data.to_csv('forecast_data.csv', index=False)
+            logger.info("Created sample forecast data")
+        
         # Load data
-        sales_data = pd.read_csv('daily_sales_processed.csv', parse_dates=['date'])
-        forecast_data = pd.read_csv('forecast_data.csv', parse_dates=['date'])
+        sales_data = pd.read_csv('daily_sales_processed.csv')
+        forecast_data = pd.read_csv('forecast_data.csv')
         
         # Create visualizer
         visualizer = BusinessVisualizer(sales_data, forecast_data)
